@@ -7,7 +7,7 @@ from utils.hparams import HParams
 
 import keras
 import keras.backend as K
-from keras.initializations import uniform
+from keras.initializers import uniform
 from keras.activations import relu
 
 from keras.models import Model
@@ -23,7 +23,7 @@ from keras.layers import Lambda
 from keras.layers import Dropout
 from keras.layers import merge
 
-from keras.regularizers import l1, l2, l1l2
+from keras.regularizers import l1, l2, l1_l2
 
 from .layers import recurrent
 
@@ -45,11 +45,12 @@ def ctc_model(inputs, output, **kwargs):
                  arguments={'is_greedy': True}, name='decoder')
     y_pred = dec([output, inputs_length])
 
-    ctc = Lambda(ctc_utils.ctc_lambda_func, output_shape=(1,), name="ctc")
-    # Define loss as a layer
-    loss = ctc([output, labels, inputs_length])
+    loss = ctc_utils.ctc_loss(output, labels, input_length)
 
-    return Model(input=[inputs, labels, inputs_length], output=[loss, y_pred])
+    model = Model(input=[inputs, labels, inputs_length], output=y_pred)
+    model.add_loss(loss)
+
+    return model
 
 
 def graves2006(num_features=26, num_hiddens=100, num_classes=28, std=.6):
@@ -67,7 +68,7 @@ def graves2006(num_features=26, num_hiddens=100, num_classes=28, std=.6):
     o = GaussianNoise(std)(o)
     o = Bidirectional(LSTM(num_hiddens,
                       return_sequences=True,
-                      consume_less='gpu'))(o)
+                      implementation=0))(o)
     o = TimeDistributed(Dense(num_classes))(o)
 
     return ctc_model(x, o)
@@ -92,11 +93,11 @@ def eyben(num_features=39, num_hiddens=[78, 120, 27], num_classes=28):
     if num_hiddens[1]:
         o = Bidirectional(LSTM(num_hiddens[1],
                           return_sequences=True,
-                          consume_less='gpu'))(o)
+                          implementation=0))(o)
     if num_hiddens[2]:
         o = Bidirectional(LSTM(num_hiddens[2],
                           return_sequences=True,
-                          consume_less='gpu'))(o)
+                          implementation=0))(o)
 
     o = TimeDistributed(Dense(num_classes))(o)
 
@@ -127,9 +128,10 @@ def maas(num_features=81, num_classes=29, num_hiddens=1824, dropout=0.1,
 
     # Third layer
     o = Bidirectional(SimpleRNN(num_hiddens, return_sequences=True,
-                                dropout_W=dropout,
+                                dropout=dropout,
                                 activation=clipped_relu,
-                                init='he_normal'), merge_mode='sum')(o)
+                                kernel_initializer='he_normal'),
+                      merge_mode='sum')(o)
 
     # Fourth layer
     o = TimeDistributed(Dense(num_hiddens))(o)
@@ -198,9 +200,10 @@ def deep_speech(num_features=81, num_classes=29, num_hiddens=2048, dropout=0.1,
 
     # Fourth layer
     o = Bidirectional(SimpleRNN(num_hiddens, return_sequences=True,
-                                dropout_W=dropout,
+                                dropout=dropout,
                                 activation=clipped_relu,
-                                init='he_normal'), merge_mode='sum')(o)
+                                kernel_initializer='he_normal'),
+                      merge_mode='sum')(o)
     o = TimeDistributed(Dropout(dropout))(o)
 
     # Fifth layer
@@ -250,32 +253,28 @@ def brsmv1(num_features=39, num_classes=28, num_hiddens=256, num_layers=5,
     if input_std_noise is not None:
         o = GaussianNoise(input_std_noise)(o)
 
-    if residual is not None:
-        o = TimeDistributed(Dense(num_hiddens*2,
-                                  W_regularizer=l2(weight_decay)))(o)
-
     if input_dropout:
         o = Dropout(dropout)(o)
 
     for i, _ in enumerate(range(num_layers)):
         new_o = Bidirectional(LSTM(num_hiddens,
                                    return_sequences=True,
-                                   W_regularizer=l2(weight_decay),
-                                   U_regularizer=l2(weight_decay),
-                                   dropout_W=dropout,
-                                   dropout_U=dropout,
+                                   kernel_regularizer=l2(weight_decay),
+                                   recurrent_regularizer=l2(weight_decay),
+                                   dropout=dropout,
+                                   recurrent_dropout=dropout,
                                    zoneout_c=zoneout,
                                    zoneout_h=zoneout,
                                    mi=mi,
                                    layer_norm=layer_norm,
                                    activation=activation))(o)
 
-        if residual is not None:
+        if residual is not None and i != 0:
             o = merge([new_o,  o], mode=residual)
         else:
             o = new_o
 
     o = TimeDistributed(Dense(num_classes,
-                              W_regularizer=l2(weight_decay)))(o)
+                              kernel_regularizer=l2(weight_decay)))(o)
 
     return ctc_model(x, o)

@@ -102,7 +102,7 @@ def custom_model(num_features=26, num_hiddens=100, num_classes=28):
 
     o = Bidirectional(LSTM(num_hiddens,
                       return_sequences=True,
-                      consume_less='gpu'))(o)
+                      implementation=0))(o)
     o = TimeDistributed(Dense(num_classes))(o)
 
     return ctc_model(x, o)

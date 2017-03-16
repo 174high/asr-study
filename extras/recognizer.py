@@ -80,7 +80,7 @@ if __name__ == "__main__":
                                   label_parser=label_parser)
 
         model_predictions = model.predict_generator(
-            data_it, val_samples=len(audios))
+            data_it, steps=len(audios))
 
         model_predictions = [label_parser.imap(p[:(np.argmax(p == -1) or len(p))]) for p in model_predictions]
 

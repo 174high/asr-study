@@ -5,7 +5,7 @@ import numpy as np
 import keras.backend as K
 import tensorflow as tf
 
-from keras import activations, initializations, regularizers
+from keras import activations, initializers, regularizers
 import keras.layers as keras_layers
 from keras.layers.recurrent import Recurrent
 from keras.engine import Layer, InputSpec
@@ -34,12 +34,12 @@ class LayerNormalization(Layer):
             `[(input_shape,), (input_shape,)]`
             Note that the order of this list is [gain, bias]
         gain_init: name of initialization function for gain parameter
-            (see [initializations](../initializations.md)), or alternatively,
+            (see [initializers](../initializers.md)), or alternatively,
             Theano/TensorFlow function to use for weights initialization.
             This parameter is only relevant if you don't pass a `weights`
             argument.
         bias_init: name of initialization function for bias parameter
-            (see [initializations](../initializations.md)), or alternatively,
+            (see [initializers](../initializers.md)), or alternatively,
             Theano/TensorFlow function to use for weights initialization.
             This parameter is only relevant if you don't pass a `weights`
             argument.
@@ -54,8 +54,8 @@ class LayerNormalization(Layer):
     def __init__(self, epsilon=1e-5, weights=None, gain_init='one',
                  bias_init='zero', **kwargs):
         self.epsilon = epsilon
-        self.gain_init = initializations.get(gain_init)
-        self.bias_init = initializations.get(bias_init)
+        self.gain_init = initializers.get(gain_init)
+        self.bias_init = initializers.get(bias_init)
         self.initial_weights = weights
         self._logger = logging.getLogger('%s.%s' % (__name__,
                                                     self.__class__.__name__))
@@ -95,12 +95,12 @@ class RHN(Recurrent):
     For a step-by-step description of the network, see
     [this paper](https://arxiv.org/abs/1607.03474).
     # Arguments
-        output_dim: dimension of the internal projections and the final output.
+        units: dimension of the internal projections and the final output.
         depth: recurrency depth size.
         init: weight initialization function.
             Can be the name of an existing function (str),
             or a Theano function (see:
-            [initializations](../initializations.md)).
+            [initializers](../initializers.md)).
         inner_init: initialization function of the inner cells.
         bias_init: initialization function of the bias.
             (see [this
@@ -112,17 +112,17 @@ class RHN(Recurrent):
         inner_activation: activation function for the inner cells.
         coupling: if True, carry gate will be coupled to the transform gate,
             i.e., c = 1 - t
-        W_regularizer: instance of [WeightRegularizer](../regularizers.md)
+        kernel_regularizer: instance of [WeightRegularizer](../regularizers.md)
             (eg. L1 or L2 regularization), applied to the input weights
             matrices.
-        U_regularizer: instance of [WeightRegularizer](../regularizers.md)
+        recurrent_regularizer: instance of [WeightRegularizer](../regularizers.md)
             (eg. L1 or L2 regularization), applied to the recurrent weights
             matrices.
-        b_regularizer: instance of [WeightRegularizer](../regularizers.md),
+        bias_regularizer: instance of [WeightRegularizer](../regularizers.md),
             applied to the bias.
-        dropout_W: float between 0 and 1. Fraction of the input units to drop
+        dropout: float between 0 and 1. Fraction of the input units to drop
         for input gates.
-        dropout_U: float between 0 and 1. Fraction of the input units to drop
+        recurrent_dropout: float between 0 and 1. Fraction of the input units to drop
         for recurrent connections.
     # References
         - [Recurrent Highway Networks](https://arxiv.org/abs/1607.03474)
@@ -132,41 +132,41 @@ class RHN(Recurrent):
         Networks](http://arxiv.org/abs/1512.05287)
     # TODO: different dropout rates for each layer
     '''
-    def __init__(self, output_dim, depth=1,
+    def __init__(self, units, depth=1,
                  init='glorot_uniform', inner_init='orthogonal',
                  bias_init=highway_bias_initializer,
                  activation='tanh', inner_activation='hard_sigmoid',
                  coupling=True, layer_norm=False, ln_gain_init='one',
                  ln_bias_init='zero', mi=False,
-                 W_regularizer=None, U_regularizer=None,
-                 b_regularizer=None, dropout_W=0., dropout_U=0., **kwargs):
-        self.output_dim = output_dim
+                 kernel_regularizer=None, recurrent_regularizer=None,
+                 bias_regularizer=None, dropout=0., recurrent_dropout=0., **kwargs):
+        self.units = units
         self.depth = depth
-        self.init = initializations.get(init)
-        self.inner_init = initializations.get(inner_init)
-        self.bias_init = initializations.get(bias_init)
+        self.init = initializers.get(init)
+        self.inner_init = initializers.get(inner_init)
+        self.bias_init = initializers.get(bias_init)
         self.activation = activations.get(activation)
         self.inner_activation = activations.get(inner_activation)
         self.coupling = coupling
         self.has_layer_norm = layer_norm
-        self.ln_gain_init = initializations.get(ln_gain_init)
-        self.ln_bias_init = initializations.get(ln_bias_init)
+        self.ln_gain_init = initializers.get(ln_gain_init)
+        self.ln_bias_init = initializers.get(ln_bias_init)
         self.mi = mi
-        self.W_regularizer = regularizers.get(W_regularizer)
-        self.U_regularizer = regularizers.get(U_regularizer)
-        self.b_regularizer = regularizers.get(b_regularizer)
-        self.dropout_W, self.dropout_U = dropout_W, dropout_U
+        self.kernel_regularizer = regularizers.get(kernel_regularizer)
+        self.recurrent_regularizer = regularizers.get(recurrent_regularizer)
+        self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.dropout, self.recurrent_dropout = dropout, recurrent_dropout
 
         self._logger = logging.getLogger('%s.%s' % (__name__,
                                                     self.__class__.__name__))
 
-        if self.dropout_W or self.dropout_U:
+        if self.dropout or self.recurrent_dropout:
             self.uses_learning_phase = True
 
         super(RHN, self).__init__(**kwargs)
 
-        if not self.consume_less == "gpu":
-            self._logger.warning("Ignoring consume_less=%s. Setting to 'gpu'." % self.consume_less)
+        if not self.implementation == 2:
+            self._logger.warning("Ignoring implementation. Setting to 2." % self.implementation)
 
     def build(self, input_shape):
         self.input_spec = [InputSpec(shape=input_shape)]
@@ -178,13 +178,13 @@ class RHN(Recurrent):
             self.states = [None]
 
         self.W = self.init((self.input_dim, (2 + (not self.coupling)) *
-                            self.output_dim), name='{}_W'.format(self.name))
+                            self.units), name='{}_W'.format(self.name))
         self.Us = [self.inner_init(
-            (self.output_dim, (2 + (not self.coupling)) * self.output_dim),
+            (self.units, (2 + (not self.coupling)) * self.units),
             name='%s_%d_U' % (self.name, i)) for i in xrange(self.depth)]
 
-        bias_init_value = K.get_value(self.bias_init((self.output_dim,)))
-        b = [np.zeros(self.output_dim),
+        bias_init_value = K.get_value(self.bias_init((self.units,)))
+        b = [np.zeros(self.units),
              np.copy(bias_init_value)]
 
         if not self.coupling:
@@ -198,7 +198,7 @@ class RHN(Recurrent):
 
         if self.mi:
             self.mi_params = [multiplicative_integration_init(
-                ((2 + (not self.coupling)) * self.output_dim,),
+                ((2 + (not self.coupling)) * self.units,),
                 name='%s_%d' % (self.name, i),
                 has_input=(i == 0)) for i in xrange(self.depth)]
 
@@ -214,25 +214,25 @@ class RHN(Recurrent):
             for l in xrange(self.depth):
 
                 ln_gains = [self.ln_gain_init(
-                    (self.output_dim,), name='%s_%d_ln_gain_%s' %
+                    (self.units,), name='%s_%d_ln_gain_%s' %
                     (self.name, l, ln_names[i])) for i in xrange(1)]
 
                 ln_biases = [self.ln_bias_init(
-                    (self.output_dim,), name='%s_%d_ln_bias_%s' %
+                    (self.units,), name='%s_%d_ln_bias_%s' %
                     (self.name, l, ln_names[i])) for i in xrange(1)]
                 self.ln_weights.append([ln_gains, ln_biases])
                 self.trainable_weights += ln_gains + ln_biases
 
         self.regularizers = []
-        if self.W_regularizer:
-            self.W_regularizer.set_param(self.W)
-            self.regularizers.append(self.W_regularizer)
-        if self.U_regularizer:
-            self.U_regularizer.set_param(self.U)
-            self.regularizers.append(self.U_regularizer)
-        if self.b_regularizer:
-            self.b_regularizer.set_param(self.b)
-            self.regularizers.append(self.b_regularizer)
+        if self.kernel_regularizer:
+            self.kernel_regularizer.set_param(self.W)
+            self.regularizers.append(self.kernel_regularizer)
+        if self.recurrent_regularizer:
+            self.recurrent_regularizer.set_param(self.U)
+            self.regularizers.append(self.recurrent_regularizer)
+        if self.bias_regularizer:
+            self.bias_regularizer.set_param(self.b)
+            self.regularizers.append(self.bias_regularizer)
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -247,9 +247,9 @@ class RHN(Recurrent):
                             size).')
         if hasattr(self, 'states'):
             K.set_value(self.states[0],
-                        np.zeros((input_shape[0], self.output_dim)))
+                        np.zeros((input_shape[0], self.units)))
         else:
-            self.states = [K.zeros((input_shape[0], self.output_dim))]
+            self.states = [K.zeros((input_shape[0], self.units))]
 
     def step(self, x, states):
         s_tm1 = states[0]
@@ -272,10 +272,10 @@ class RHN(Recurrent):
             else:
                 a = Wx + Us + b
 
-            a0 = a[:, :self.output_dim]
-            a1 = a[:, self.output_dim: 2 * self.output_dim]
+            a0 = a[:, :self.units]
+            a1 = a[:, self.units: 2 * self.units]
             if not self.coupling:
-                a2 = a[:, 2 * self.output_dim:]
+                a2 = a[:, 2 * self.units:]
 
             if self.has_layer_norm:
                 ln_gains, ln_biases = self.ln_weights[layer]
@@ -304,22 +304,22 @@ class RHN(Recurrent):
 
         for layer in xrange(self.depth):
             constant = []
-            if 0 < self.dropout_U < 1:
+            if 0 < self.recurrent_dropout < 1:
                 ones = K.ones_like(K.reshape(x[:, 0, 0], (-1, 1)))
-                ones = K.tile(ones, (1, self.output_dim))
-                B_U = K.in_train_phase(K.dropout(ones, self.dropout_U), ones)
+                ones = K.tile(ones, (1, self.units))
+                B_U = K.in_train_phase(K.dropout(ones, self.recurrent_dropout), ones)
                 constant.append(B_U)
             else:
                 constant.append(K.cast_to_floatx(1.))
 
             if layer == 0:
-                if 0 < self.dropout_W < 1:
+                if 0 < self.dropout < 1:
                     input_shape = self.input_spec[0].shape
                     input_dim = input_shape[-1]
                     ones = K.ones_like(K.reshape(x[:, 0, 0], (-1, 1)))
                     ones = K.tile(ones, (1, input_dim))
                     B_W = K.in_train_phase(K.dropout(ones,
-                                                     self.dropout_W), ones)
+                                                     self.dropout), ones)
                     constant.append(B_W)
                 else:
                     constant.append(K.cast_to_floatx(1.))
@@ -329,7 +329,7 @@ class RHN(Recurrent):
         return constants
 
     def get_config(self):
-        config = {'output_dim': self.output_dim,
+        config = {'units': self.units,
                   'depth': self.depth,
                   'init': self.init.__name__,
                   'inner_init': self.inner_init.__name__,
@@ -341,14 +341,14 @@ class RHN(Recurrent):
                   'ln_gain_init': self.ln_gain_init.__name__,
                   'ln_bias_init': self.ln_bias_init.__name__,
                   'mi': self.mi,
-                  'W_regularizer': self.W_regularizer.get_config() if
-                  self.W_regularizer else None,
-                  'U_regularizer': self.U_regularizer.get_config() if
-                  self.U_regularizer else None,
-                  'b_regularizer': self.b_regularizer.get_config() if
-                  self.b_regularizer else None,
-                  'dropout_W': self.dropout_W,
-                  'dropout_U': self.dropout_U}
+                  'kernel_regularizer': self.kernel_regularizer.get_config() if
+                  self.kernel_regularizer else None,
+                  'recurrent_regularizer': self.recurrent_regularizer.get_config() if
+                  self.recurrent_regularizer else None,
+                  'bias_regularizer': self.bias_regularizer.get_config() if
+                  self.bias_regularizer else None,
+                  'dropout': self.dropout,
+                  'recurrent_dropout': self.recurrent_dropout}
         base_config = super(RHN, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -363,10 +363,10 @@ class LSTM(keras_layers.LSTM):
     # References
         - [Zoneout: Regularizing RNNs by Randomly Preserving Hidden Activations](https://arxiv.org/abs/1606.01305)
     """
-    def __init__(self, output_dim, zoneout_h=0., zoneout_c=0.,
+    def __init__(self, units, zoneout_h=0., zoneout_c=0.,
                  layer_norm=None, mi=None, **kwargs):
 
-        super(LSTM, self).__init__(output_dim, **kwargs)
+        super(LSTM, self).__init__(units, **kwargs)
 
         self._logger = logging.getLogger('%s.%s' % (__name__,
                                                     self.__class__.__name__))
@@ -380,10 +380,10 @@ class LSTM(keras_layers.LSTM):
         if self.zoneout_h or self.zoneout_c:
             self.uses_learning_phase = True
 
-        if self.consume_less != 'gpu':
-            self._logger.warn("Invalid option for `consume_less`. Falling back \
-to option `gpu`.")
-            self.consume_less = 'gpu'
+        if self.implementation != 2:
+            self._logger.warn("Invalid option for `implementation`. Falling back \
+to 2.")
+            self.implementation = 2
 
     def build(self, input_shape):
         super(LSTM, self).build(input_shape)
@@ -392,15 +392,15 @@ to option `gpu`.")
             alpha_init, beta1_init, beta2_init = self.mi
 
             self.mi_alpha = self.add_weight(
-                (4 * self.output_dim, ),
+                (4 * self.units, ),
                 initializer=k_init(alpha_init),
                 name='{}_mi_alpha'.format(self.name))
             self.mi_beta1 = self.add_weight(
-                (4 * self.output_dim, ),
+                (4 * self.units, ),
                 initializer=k_init(beta1_init),
                 name='{}_mi_beta1'.format(self.name))
             self.mi_beta2 = self.add_weight(
-                (4 * self.output_dim, ),
+                (4 * self.units, ),
                 initializer=k_init(beta2_init),
                 name='{}_mi_beta2'.format(self.name))
 
@@ -411,60 +411,70 @@ to option `gpu`.")
             for n, i in {'Uh': 4, 'Wx': 4, 'new_c': 1}.items():
 
                 gain = self.add_weight(
-                    (i*self.output_dim, ),
+                    (i*self.units, ),
                     initializer=k_init(ln_gain_init),
                     name='%s_ln_gain_%s' % (self.name, n))
                 bias = self.add_weight(
-                    (i*self.output_dim, ),
+                    (i*self.units, ),
                     initializer=k_init(ln_bias_init),
                     name='%s_ln_bias_%s' % (self.name, n))
 
                 self.layer_norm_params[n] = [gain, bias]
 
-    def _layer_norm(self, x, gain, bias):
+    def _layer_norm(self, x, param_name):
         if self.layer_norm is None:
             return x
 
+        gain, bias = self.layer_norm_params[param_name]
+
         return layer_normalization(x, gain, bias)
 
-    def step(self, x, states):
+    def step(self, inputs, states):
         h_tm1 = states[0]
         c_tm1 = states[1]
-        B_U = states[2]
-        B_W = states[3]
+        dp_mask = states[2]
+        rec_dp_mask = states[3]
 
-        Uh = self._layer_norm(K.dot(h_tm1 * B_U[0], self.U),
-                              *self.layer_norm_params['Uh'])
-        Wx = self._layer_norm(K.dot(x * B_W[0], self.W),
-                              *self.layer_norm_params['Wx'])
+        Uh = self._layer_norm(K.dot(h_tm1 * rec_dp_mask[0],
+                                    self.recurrent_kernel),
+                             'Uh')
+        Wx = self._layer_norm(K.dot(inputs * dp_mask[0], self.kernel),
+                              'Wx')
 
         if self.mi is not None:
             z = self.mi_alpha * Wx * Uh + self.mi_beta1 * Uh + \
-                self.mi_beta2 * Wx + self.b
+                self.mi_beta2 * Wx
         else:
-            z = Wx + Uh + self.b
+            z = Wx + Uh
 
-        z_i = z[:, :self.output_dim]
-        z_f = z[:, self.output_dim: 2 * self.output_dim]
-        z_c = z[:, 2 * self.output_dim: 3 * self.output_dim]
-        z_o = z[:, 3 * self.output_dim:]
+        if self.use_bias:
+            z = K.bias_add(z, self.bias)
 
-        i = self.inner_activation(z_i)
-        f = self.inner_activation(z_f)
+        z_i = z[:, :self.units]
+        z_f = z[:, self.units: 2 * self.units]
+        z_c = z[:, 2 * self.units: 3 * self.units]
+        z_o = z[:, 3 * self.units:]
+
+        i = self.recurrent_activation(z_i)
+        f = self.recurrent_activation(z_f)
         c = f * c_tm1 + i * self.activation(z_c)
-        o = self.inner_activation(z_o)
+        o = self.recurrent_activation(z_o)
 
         if 0 < self.zoneout_c < 1:
             c = zoneout(self.zoneout_c, c_tm1, c,
-                        noise_shape=(self.output_dim,))
+                        noise_shape=(self.units,))
 
         # this is returning a lot of nan
-        new_c = self._layer_norm(c, *self.layer_norm_params['new_c'])
+        new_c = self._layer_norm(c, 'new_c')
 
         h = o * self.activation(new_c)
+
         if 0 < self.zoneout_h < 1:
             h = zoneout(self.zoneout_h, h_tm1, h,
-                        noise_shape=(self.output_dim,))
+                        noise_shape=(self.units,))
+
+        if 0 < self.dropout + self.recurrent_dropout + self.zoneout_h:
+            h._uses_learning_phase = True
 
         return h, [h, c]
 
@@ -479,40 +489,40 @@ to option `gpu`.")
         return dict(list(base_config.items()) + list(config.items()))
 
 
-def recurrent(output_dim, model='keras_lstm', activation='tanh',
+def recurrent(units, model='keras_lstm', activation='tanh',
               regularizer=None, dropout=0., **kwargs):
     if model == 'rnn':
-        return keras_layers.SimpleRNN(output_dim, activation=activation,
-                                      W_regularizer=regularizer,
-                                      U_regularizer=regularizer,
-                                      dropout_W=dropout, dropout_U=dropout, consume_less='gpu',
+        return keras_layers.SimpleRNN(units, activation=activation,
+                                      kernel_regularizer=regularizer,
+                                      recurrent_regularizer=regularizer,
+                                      dropout=dropout, recurrent_dropout=dropout, implementation=0,
                                       **kwargs)
     if model == 'gru':
-        return keras_layers.GRU(output_dim, activation=activation,
-                                W_regularizer=regularizer,
-                                U_regularizer=regularizer, dropout_W=dropout,
-                                dropout_U=dropout,
-                                consume_less='gpu', **kwargs)
+        return keras_layers.GRU(units, activation=activation,
+                                kernel_regularizer=regularizer,
+                                recurrent_regularizer=regularizer, dropout=dropout,
+                                recurrent_dropout=dropout,
+                                implementation=0, **kwargs)
     if model == 'keras_lstm':
-        return keras_layers.LSTM(output_dim, activation=activation,
-                                 W_regularizer=regularizer,
-                                 U_regularizer=regularizer,
-                                 dropout_W=dropout, dropout_U=dropout,
-                                 consume_less='gpu', **kwargs)
+        return keras_layers.LSTM(units, activation=activation,
+                                 kernel_regularizer=regularizer,
+                                 recurrent_regularizer=regularizer,
+                                 dropout=dropout, recurrent_dropout=dropout,
+                                 implementation=0, **kwargs)
     if model == 'rhn':
-        return RHN(output_dim, depth=1,
+        return RHN(units, depth=1,
                    bias_init=highway_bias_initializer,
                    activation=activation, layer_norm=False, ln_gain_init='one',
                    ln_bias_init='zero', mi=False,
-                   W_regularizer=regularizer, U_regularizer=regularizer,
-                   dropout_W=dropout, dropout_U=dropout, consume_less='gpu',
+                   kernel_regularizer=regularizer, recurrent_regularizer=regularizer,
+                   dropout=dropout, recurrent_dropout=dropout, implementation=0,
                    **kwargs)
 
     if model == 'lstm':
-        return LSTM(output_dim, activation=activation,
-                    W_regularizer=regularizer, U_regularizer=regularizer,
-                    dropout_W=dropout, dropout_U=dropout,
-                    consume_less='gpu', **kwargs)
+        return LSTM(units, activation=activation,
+                    kernel_regularizer=regularizer, recurrent_regularizer=regularizer,
+                    dropout=dropout, recurrent_dropout=dropout,
+                    implementation=0, **kwargs)
     raise ValueError('model %s was not recognized' % model)
 
 

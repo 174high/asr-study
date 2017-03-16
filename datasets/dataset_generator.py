@@ -215,8 +215,7 @@ class DatasetIterator(Iterator):
         if batch_labels is None:
             return [batch_inputs, batch_inputs_len]
 
-        return ([batch_inputs, batch_labels, batch_inputs_len],
-                [np.zeros((batch_inputs.shape[0],)), batch_labels])
+        return [batch_inputs, batch_labels, batch_inputs_len], None
 
     def _make_in(self, inputs, batch_size=None):
         if self.input_parser is not None:

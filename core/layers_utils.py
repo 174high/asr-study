@@ -4,13 +4,13 @@ from __future__ import absolute_import
 import keras.backend as K
 import tensorflow as tf
 
-from keras import activations, initializations, regularizers
+from keras import activations, initializers, regularizers
 from keras.layers import GRU, SimpleRNN
 from keras.layers import LSTM as keras_LSTM
 
 
 def highway_bias_initializer(shape, name=None):
-    return -2 * initializations.one(shape, name=name)
+    return -2 * initializers.one(shape, name=name)
 
 
 def layer_normalization(x, gain, bias, epsilon=1e-5):
@@ -22,10 +22,10 @@ def layer_normalization(x, gain, bias, epsilon=1e-5):
 def multiplicative_integration_init(shape, alpha_init='one',
                                     beta1_init='one', beta2_init='one',
                                     name='mi', has_input=True):
-    beta1 = initializations.get(beta1_init)(shape, name='%s_beta1' % name)
+    beta1 = initializers.get(beta1_init)(shape, name='%s_beta1' % name)
     if has_input:
-        alpha = initializations.get(alpha_init)(shape, name='%s_alpha' % name)
-        beta2 = initializations.get(beta2_init)(shape, name='%s_beta2' % name)
+        alpha = initializers.get(alpha_init)(shape, name='%s_alpha' % name)
+        beta2 = initializers.get(beta2_init)(shape, name='%s_beta2' % name)
         return alpha, beta1, beta2
 
     return beta1

@@ -22,16 +22,12 @@ class MetaCheckpoint(callbacks.ModelCheckpoint):
                                              save_weights_only=False,
                                              mode='auto', period=1)
 
-        self.filepath = filepath
         self.meta = meta or {'epochs': []}
 
         if training_args:
             training_args = vars(training_args)
 
             self.meta['training_args'] = training_args
-
-    def on_train_begin(self, logs={}):
-        super(MetaCheckpoint, self).on_train_begin(logs)
 
     def on_epoch_end(self, epoch, logs={}):
         super(MetaCheckpoint, self).on_epoch_end(epoch, logs)
@@ -54,17 +50,3 @@ class MetaCheckpoint(callbacks.ModelCheckpoint):
                                           data=np.array(self.meta['epochs']))
                 for k in logs:
                     meta_group.create_dataset(k, data=np.array(self.meta[k]))
-
-
-class ProgbarLogger(callbacks.ProgbarLogger):
-
-    def __init__(self, show_metrics=None):
-        super(ProgbarLogger, self).__init__()
-
-        self.show_metrics = show_metrics
-
-    def on_train_begin(self, logs=None):
-        super(ProgbarLogger, self).on_train_begin(logs)
-
-        if self.show_metrics:
-            self.params['metrics'] = self.show_metrics

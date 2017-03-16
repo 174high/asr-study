@@ -28,8 +28,7 @@ from keras.optimizers import SGD, Adam
 from keras.callbacks import ReduceLROnPlateau
 
 from core import metrics
-from core.ctc_utils import ctc_dummy_loss, decoder_dummy_loss
-from core.callbacks import MetaCheckpoint, ProgbarLogger
+from core.callbacks import MetaCheckpoint
 from utils.core_utils import setup_gpu
 
 from preprocessing import audio, text
@@ -82,7 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--save', default=None, type=str)
     parser.add_argument('--gpu', default='0', type=str)
     parser.add_argument('--allow_growth', default=False, action='store_true')
-    parser.add_argument('--verbose', default=0, type=int)
+    parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--seed', default=None, type=float)
 
     args = parser.parse_args()
@@ -91,10 +90,6 @@ if __name__ == '__main__':
     utils.setup_logging()
     logger = logging.getLogger(__name__)
     tf.logging.set_verbosity(tf.logging.ERROR)
-
-    # hack in ProgbarLogger: avoid logger.infoing the dummy losses
-    keras.callbacks.ProgbarLogger = lambda: ProgbarLogger(
-        show_metrics=['loss', 'decoder_ler', 'val_loss', 'val_decoder_ler'])
 
     # GPU configuration
     setup_gpu(args.gpu, args.allow_growth,
@@ -137,10 +132,7 @@ if __name__ == '__main__':
             opt = Adam(lr=args.lr, clipnorm=args.clipnorm)
 
         # Compile with dummy loss
-        model.compile(loss={'ctc': ctc_dummy_loss,
-                            'decoder': decoder_dummy_loss},
-                      optimizer=opt, metrics={'decoder': metrics.ler},
-                      loss_weights=[1, 0])
+        model.compile(optimizer=opt, loss=None, metrics=[metrics.ler])
 
     logger.info('Creating results folder...')
     # Creating the results folder
@@ -190,37 +182,38 @@ if __name__ == '__main__':
                                 seed=args.seed)
     # iterators over datasets
     train_flow, valid_flow, test_flow = None, None, None
-    num_val_samples = num_test_samples = 0
+    validation_steps = 0
 
     logger.info('Generating flow...')
     if len(args.dataset) == 1:
         train_flow, valid_flow, test_flow = data_gen.flow_from_fname(
             args.dataset[0], datasets=['train', 'valid', 'test'])
-        num_val_samples = valid_flow.len
+        validation_steps = valid_flow.len
     else:
         train_flow = data_gen.flow_from_fname(args.dataset[0])
         valid_flow = data_gen.flow_from_fname(args.dataset[1])
 
-        num_val_samples = valid_flow.len
+        validation_steps = valid_flow.len
         if len(args.dataset) == 3:
             test_flow = data_gen.flow_from_fname(args.dataset[2])
-            num_test_samples = test_flow.len
 
     logger.info(str(vars(args)))
     print(str(vars(args)))
     logger.info('Initialzing training...')
-    # Fit the model
-    model.fit_generator(train_flow, samples_per_epoch=train_flow.len,
-                        nb_epoch=args.num_epochs, validation_data=valid_flow,
-                        nb_val_samples=num_val_samples, max_q_size=10,
-                        nb_worker=1, callbacks=callback_list, verbose=1,
-                        initial_epoch=epoch_offset)
+    # Fit the model)
+    model.fit_generator(train_flow,
+                        steps_per_epoch=train_flow.len//args.batch_size,
+                        epochs=args.num_epochs, validation_data=valid_flow,
+                        validation_steps=validation_steps//args.batch_size,
+                        max_q_size=10, workers=1, callbacks=callback_list,
+                        verbose=args.verbose, initial_epoch=epoch_offset)
 
     if test_flow:
         del model
         model = load_model(os.path.join(output_dir, 'best.h5'), mode='eval')
         logger.info('Evaluating best model on test set')
-        metrics = model.evaluate_generator(test_flow, test_flow.len,
+        metrics = model.evaluate_generator(test_flow,
+                                           test_flow.len//args.batch_size,
                                            max_q_size=10, nb_worker=1)
 
         msg = 'Total loss: %.4f\n\
